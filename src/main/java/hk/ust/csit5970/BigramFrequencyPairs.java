@@ -27,7 +27,7 @@ import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.Logger;
-
+import java.util.HashMap;
 /**
  * Compute the bigram count using "pairs" approach
  */
@@ -47,12 +47,25 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		@Override
 		public void map(LongWritable key, Text value, Context context)
 				throws IOException, InterruptedException {
-			String line = ((Text) value).toString();
+			String line = value.toString();
 			String[] words = line.trim().split("\\s+");
 			
-			/*
-			 * TODO: Your implementation goes here.
-			 */
+			if (words.length < 2) {
+				return;
+			}
+			
+			for (int i = 0; i < words.length - 1; i++) {
+				String wordA = words[i];
+				String wordB = words[i + 1];
+				
+				// Emit bigram (A, B) with count 1
+				BIGRAM.set(wordA, wordB);
+				context.write(BIGRAM, ONE);
+				
+				// Emit total count marker (A, *)
+				BIGRAM.set(wordA, "*");
+				context.write(BIGRAM, ONE);
+			}
 		}
 	}
 
@@ -65,12 +78,36 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		// Reuse objects.
 		private final static FloatWritable VALUE = new FloatWritable();
 
+		private final HashMap<String, Integer> totalMap = new HashMap<String, Integer>();
+
 		@Override
 		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
-			/*
-			 * TODO: Your implementation goes here.
-			 */
+			String left = key.getLeftElement();
+			String right = key.getRightElement();
+			
+			int sum = 0;
+			for (IntWritable val : values) {
+				sum += val.get();
+			}
+			
+			if (right.equals("*")) {
+				totalMap.put(left, sum);
+				// Emit total count for wordA
+				PairOfStrings outputKey = new PairOfStrings(left, "");
+				VALUE.set(sum);
+				context.write(outputKey, VALUE);
+			} else {
+				Integer total = totalMap.get(left);
+				float freq;
+				if (total == null || total == 0) {
+					freq = 0;
+				} else {
+					freq = (float) sum / total;
+				}
+				VALUE.set(freq);
+				context.write(key, VALUE);
+			}
 		}
 	}
 	
@@ -81,9 +118,12 @@ public class BigramFrequencyPairs extends Configured implements Tool {
 		@Override
 		public void reduce(PairOfStrings key, Iterable<IntWritable> values,
 				Context context) throws IOException, InterruptedException {
-			/*
-			 * TODO: Your implementation goes here.
-			 */
+			int sum = 0;
+			for (IntWritable val : values) {
+				sum += val.get();
+			}
+			SUM.set(sum);
+			context.write(key, SUM);
 		}
 	}
 
